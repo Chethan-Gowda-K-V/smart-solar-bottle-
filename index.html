@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AquaMind AI | Split-Screen: 3D Smart Bottle + Bluetooth App</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    body {
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: #0a0f1c;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Split layout */
+    .split-layout {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      flex-direction: row;
+    }
+
+    /* LEFT: 3D Bottle Canvas */
+    .bottle-canvas {
+      flex: 1.2;
+      position: relative;
+      background: radial-gradient(circle at 30% 20%, #031a2c, #00060e);
+      border-right: 2px solid rgba(0, 255, 255, 0.3);
+      box-shadow: 8px 0 30px rgba(0,0,0,0.5);
+      z-index: 1;
+    }
+
+    /* RIGHT: App Panel */
+    .app-panel {
+      flex: 1;
+      background: rgba(12, 22, 35, 0.85);
+      backdrop-filter: blur(16px);
+      color: white;
+      padding: 1.5rem;
+      overflow-y: auto;
+      border-left: 1px solid rgba(0, 230, 255, 0.4);
+      box-shadow: -5px 0 25px rgba(0,0,0,0.3);
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Scrollbar */
+    .app-panel::-webkit-scrollbar { width: 4px; }
+    .app-panel::-webkit-scrollbar-track { background: #1a2a3a; border-radius: 10px; }
+    .app-panel::-webkit-scrollbar-thumb { background: #0af; border-radius: 10px; }
+
+    /* Cards */
+    .card {
+      background: rgba(0, 20, 40, 0.6);
+      border-radius: 1.5rem;
+      padding: 1rem 1.2rem;
+      border: 1px solid rgba(0, 200, 255, 0.3);
+      backdrop-filter: blur(4px);
+    }
+
+    .flex-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .progress-bg {
+      background: #1e3450;
+      border-radius: 60px;
+      height: 10px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+    .progress-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #2ee0ff, #0a6fcf);
+      border-radius: 60px;
+      transition: width 0.3s;
+    }
+
+    button {
+      background: rgba(20, 60, 100, 0.9);
+      border: 1px solid rgba(0, 200, 255, 0.7);
+      border-radius: 2rem;
+      padding: 8px 16px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+      font-size: 0.75rem;
+      margin: 4px 6px 4px 0;
+    }
+    button:hover {
+      background: #1f7faa;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,160,255,0.3);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .bluetooth-pulse {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 10px;
+      background: #2ecc71;
+      margin-right: 8px;
+      box-shadow: 0 0 6px #2ecc71;
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.8);}
+      100% { opacity: 1; transform: scale(1.2);}
+    }
+
+    .log-area {
+      background: #071a28aa;
+      border-radius: 1rem;
+      padding: 8px 12px;
+      font-size: 0.7rem;
+      font-family: monospace;
+      max-height: 130px;
+      overflow-y: auto;
+    }
+    .log-item {
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 5px 0;
+      display: flex;
+      justify-content: space-between;
+    }
+    .badge {
+      background: #0f2a38;
+      border-radius: 40px;
+      padding: 4px 12px;
+      font-size: 0.7rem;
+    }
+    h3 { font-size: 1.1rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    i { margin-right: 5px; }
+    .temp-row { display: flex; justify-content: space-between; margin-top: 8px; }
+    .alert-toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ff4d4ddd;
+      backdrop-filter: blur(12px);
+      padding: 12px 24px;
+      border-radius: 60px;
+      color: white;
+      font-weight: bold;
+      z-index: 200;
+      transition: 0.2s;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .alert-toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+<div class="split-layout">
+  <!-- LEFT: 3D BOTTLE VIEW -->
+  <div class="bottle-canvas" id="bottleCanvas"></div>
+
+  <!-- RIGHT: APP INTERFACE -->
+  <div class="app-panel">
+    <div style="text-align: center;">
+      <h2><i class="fas fa-mobile-alt"></i> AquaMind AI App</h2>
+      <span class="badge"><i class="fas fa-bluetooth-b"></i> BLE 5.2 Ready</span>
+    </div>
+
+    <!-- Bluetooth Connection Card -->
+    <div class="card">
+      <div class="flex-row">
+        <span><i class="fas fa-bluetooth"></i> <strong>Bottle Link</strong></span>
+        <span id="connStatusBadge" style="color:#ff8888">🔴 Offline</span>
+      </div>
+      <div class="flex-row">
+        <button id="connectBtn"><i class="fas fa-plug"></i> Pair & Connect</button>
+        <button id="disconnectBtn" disabled><i class="fas fa-unlink"></i> Disconnect</button>
+      </div>
+      <div style="font-size:0.7rem; margin-top: 6px;">
+        <div>📡 Device: <strong id="deviceName">AquaMind 3L (not paired)</strong></div>
+        <div>📶 Signal: <span id="signalValue">-- dBm</span></div>
+      </div>
+      <div class="log-area" id="btConsole">
+        <div class="log-item"><span>⚡ Ready to pair with bottle</span><span>now</span></div>
+      </div>
+    </div>
+
+    <!-- Hydration Stats -->
+    <div class="card">
+      <div class="flex-row">
+        <span><i class="fas fa-tint"></i> <strong>Today's Intake</strong></span>
+        <span><span id="intakeDisplay">0</span> / <span id="goalDisplay">3000</span> ml</span>
+      </div>
+      <div class="progress-bg"><div class="progress-fill" id="fillProgress" style="width:0%"></div></div>
+      <div class="flex-row">
+        <span>💧 Bottle remaining: <strong id="bottleRemainDisplay">3000</strong> ml</span>
+        <span>🧠 XP: <span id="xpDisplay">0</span></span>
+      </div>
+      <div class="temp-row">
+        <span><i class="fas fa-temperature-low"></i> Water: <span id="waterTempDisplay">17.2</span>°C</span>
+        <span><i class="fas fa-temperature-high"></i> Ambient: <span id="ambientTempDisplay">24.5</span>°C</span>
+        <span>🔋 <span id="batteryDisplay">98</span>%</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card">
+      <div class="flex-row">
+        <button id="drink250Btn"><i class="fas fa-plus-circle"></i> +250 ml</button>
+        <button id="drink500Btn"><i class="fas fa-plus-circle"></i> +500 ml</button>
+        <button id="refillBtn"><i class="fas fa-sync-alt"></i> Refill Bottle</button>
+        <button id="testReminderBtn"><i class="fas fa-bell"></i> Test Alert</button>
+      </div>
+      <div class="advisor" style="margin-top: 10px; background: #0a2840; border-radius: 1rem; padding: 8px;">
+        <i class="fas fa-hourglass-half"></i> <strong>Hydration Coach:</strong> <span id="advisorMsg">Drink to stay on track</span>
+      </div>
+    </div>
+
+    <!-- Live Activity Log -->
+    <div class="card">
+      <div class="flex-row"><span><i class="fas fa-history"></i> <strong>Live Activity</strong></span><span>BLE sync</span></div>
+      <div class="log-area" id="activityLog">
+        <div class="log-item"><span>✨ App ready, waiting for bottle</span><span>now</span></div>
+      </div>
+    </div>
+    <div style="font-size:0.6rem; text-align:center; opacity:0.6">
+      <i class="fas fa-microchip"></i> Real BLE simulation | Every action syncs with 3D bottle
+    </div>
+  </div>
+</div>
+
+<div id="globalToast" class="alert-toast">💧 Hydration reminder</div>
+
+<!-- Import Three.js and modules -->
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+    }
+  }
+</script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // ---------- 1. SETUP 3D BOTTLE (LEFT CANVAS) ----------
+  const container = document.getElementById('bottleCanvas');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x031a2c);
+  scene.fog = new THREE.FogExp2(0x031a2c, 0.015);
+  
+  const camera = new THREE.PerspectiveCamera(38, container.clientWidth / container.clientHeight, 0.1, 1000);
+  camera.position.set(3.2, 2.8, 4.5);
+  camera.lookAt(0, 1.4, 0);
+  
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+  
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.autoRotate = false;
+  controls.enableZoom = true;
+  controls.target.set(0, 1.5, 0);
+  
+  // Lighting
+  const ambient = new THREE.AmbientLight(0x335588);
+  scene.add(ambient);
+  const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  mainLight.position.set(3, 5, 2);
+  mainLight.castShadow = true;
+  scene.add(mainLight);
+  const fillLight = new THREE.PointLight(0x44aaff, 0.5);
+  fillLight.position.set(1, 2, 2);
+  scene.add(fillLight);
+  const backLight = new THREE.PointLight(0xffaa66, 0.4);
+  backLight.position.set(-1, 2, -2.5);
+  scene.add(backLight);
+  const rimLight = new THREE.PointLight(0x88ccff, 0.45);
+  rimLight.position.set(1.2, 2.2, -2);
+  scene.add(rimLight);
+  
+  // ground hint
+  const grid = new THREE.GridHelper(6, 20, 0x44aaff, 0x2266aa);
+  grid.position.y = -0.5;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.2;
+  scene.add(grid);
+  
+  // ---------- BOTTLE MODELS (realistic look) ----------
+  const bottleGroup = new THREE.Group();
+  
+  // Glass body with slight blue tint
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xaad4ff, metalness: 0.25, roughness: 0.2, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+  const bodyGeo = new THREE.CylinderGeometry(0.85, 0.72, 2.2, 64, 48);
+  const outerGlass = new THREE.Mesh(bodyGeo, glassMat);
+  outerGlass.castShadow = true;
+  outerGlass.position.y = 1.12;
+  bottleGroup.add(outerGlass);
+  
+  // Inner water (dynamic level)
+  const waterMat = new THREE.MeshStandardMaterial({ color: 0x3caffe, emissive: 0x0066aa, transparent: true, opacity: 0.92, metalness: 0.6 });
+  const waterGeo = new THREE.CylinderGeometry(0.73, 0.64, 1.0, 48, 32);
+  const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+  waterMesh.castShadow = true;
+  waterMesh.position.y = 0.2;
+  waterMesh.scale.set(1, 1.0, 1);
+  bottleGroup.add(waterMesh);
+  
+  // Metallic bottom ring
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xddbb99, metalness: 0.9, roughness: 0.3 });
+  const ringGeo = new THREE.TorusGeometry(0.79, 0.05, 32, 100);
+  const bottomRing = new THREE.Mesh(ringGeo, ringMat);
+  bottomRing.rotation.x = Math.PI / 2;
+  bottomRing.position.y = 0.08;
+  bottleGroup.add(bottomRing);
+  
+  // Cap base
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x2c2f3c, metalness: 0.7, roughness: 0.4 });
+  const capGeo = new THREE.CylinderGeometry(0.94, 0.96, 0.28, 56);
+  const cap = new THREE.Mesh(capGeo, capMat);
+  cap.position.y = 2.24;
+  cap.castShadow = true;
+  bottleGroup.add(cap);
+  
+  // Solar panel texture (high quality)
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024; canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d2a4a';
+  ctx.fillRect(0, 0, 1024, 1024);
+  ctx.strokeStyle = '#ffcc88';
+  ctx.lineWidth = 12;
+  for (let i = 0; i <= 8; i++) {
+    ctx.beginPath(); ctx.moveTo(i*128, 0); ctx.lineTo(i*128, 1024); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i*128); ctx.lineTo(1024, i*128); ctx.stroke();
+  }
+  for (let i=0; i<8; i++) for (let j=0; j<8; j++) if ((i+j)%2===0) { ctx.fillStyle = '#ffdd99'; ctx.fillRect(i*128+16, j*128+16, 96, 96); }
+  const solarTexture = new THREE.CanvasTexture(canvas);
+  const solarMat = new THREE.MeshStandardMaterial({ map: solarTexture, metalness: 0.88, roughness: 0.2, emissive: 0x442200, emissiveIntensity: 0.3 });
+  const solarDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.82, 0.09, 48), solarMat);
+  solarDisc.position.y = 2.43;
+  bottleGroup.add(solarDisc);
+  
+  // Glow ring (AI mood)
+  const glowMat = new THREE.MeshStandardMaterial({ color: 0x44bbff, emissive: 0x2277dd, emissiveIntensity: 0.7 });
+  const glowRing = new THREE.Mesh(new THREE.TorusGeometry(0.89, 0.045, 48, 120), glowMat);
+  glowRing.rotation.x = Math.PI / 2;
+  glowRing.position.y = 2.38;
+  bottleGroup.add(glowRing);
+  
+  // USB-C port detail
+  const portGroup = new THREE.Group();
+  const portBase = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.13, 0.09), new THREE.MeshStandardMaterial({ color: 0xbbaa77, metalness: 0.85 }));
+  portBase.position.set(0.9, 0.48, 0.68);
+  portGroup.add(portBase);
+  const portInner = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.05), new THREE.MeshStandardMaterial({ color: 0x332211 }));
+  portInner.position.set(0.9, 0.48, 0.74);
+  portGroup.add(portInner);
+  const ledLight = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12), new THREE.MeshStandardMaterial({ color: 0x44ff88, emissive: 0x22aa55, emissiveIntensity: 0.9 }));
+  ledLight.position.set(1.05, 0.48, 0.7);
+  portGroup.add(ledLight);
+  bottleGroup.add(portGroup);
+  
+  // Top decorative ring
+  const topRingMesh = new THREE.Mesh(new THREE.TorusGeometry(0.87, 0.04, 32, 100), new THREE.MeshStandardMaterial({ color: 0xffdd99, metalness: 0.95 }));
+  topRingMesh.rotation.x = Math.PI / 2;
+  topRingMesh.position.y = 2.52;
+  bottleGroup.add(topRingMesh);
+  
+  scene.add(bottleGroup);
+  
+  // Floating particles (ambience)
+  const particleCount = 400;
+  const particleGeo = new THREE.BufferGeometry();
+  const posArray = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    posArray[i*3] = (Math.random() - 0.5) * 4.5;
+    posArray[i*3+1] = Math.random() * 3.6;
+    posArray[i*3+2] = (Math.random() - 0.5) * 4;
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+  const particles = new THREE.Points(particleGeo, new THREE.PointsMaterial({ color: 0x88bbff, size: 0.018, transparent: true, opacity: 0.4 }));
+  scene.add(particles);
+  
+  // ---------- BOTTLE STATE (hardware simulation) ----------
+  const BOTTLE_CAPACITY = 3000;   // ml
+  let currentIntake = 0;          // consumed today
+  let xp = 0;
+  let lastDrinkTime = Date.now();
+  let batteryLevel = 98;
+  let waterTemp = 17.2;
+  let ambientTemp = 24.5;
+  
+  // Helper: update 3D water level based on remaining water
+  function updateWater3D() {
+    const remaining = BOTTLE_CAPACITY - currentIntake;
+    const percentFull = Math.max(0, remaining / BOTTLE_CAPACITY);
+    const scaleY = Math.max(0.02, percentFull * 0.98);
+    waterMesh.scale.set(1, scaleY, 1);
+    waterMesh.position.y = 0.2 + (scaleY * 0.5);
+    // also update glow intensity based on goal progress
+    const goalPercent = (currentIntake / 3000) * 100;
+    const intensity = 0.5 + (goalPercent / 100) * 1.2;
+    glowMat.emissiveIntensity = Math.min(1.5, intensity);
+  }
+  
+  // ---------- BLUETOOTH SIMULATION (realistic handshake) ----------
+  let btConnected = false;
+  let syncInterval = null;
+  let fakeRSSI = -55;
+  
+  // UI elements for right panel
+  const connectBtn = document.getElementById('connectBtn');
+  const disconnectBtn = document.getElementById('disconnectBtn');
+  const connStatusBadge = document.getElementById('connStatusBadge');
+  const deviceNameSpan = document.getElementById('deviceName');
+  const signalSpan = document.getElementById('signalValue');
+  const btConsole = document.getElementById('btConsole');
+  const intakeDisplay = document.getElementById('intakeDisplay');
+  const fillProgress = document.getElementById('fillProgress');
+  const bottleRemainSpan = document.getElementById('bottleRemainDisplay');
+  const xpDisplaySpan = document.getElementById('xpDisplay');
+  const waterTempSpan = document.getElementById('waterTempDisplay');
+  const ambientTempSpan = document.getElementById('ambientTempDisplay');
+  const batteryDisplaySpan = document.getElementById('batteryDisplay');
+  const advisorMsgSpan = document.getElementById('advisorMsg');
+  const activityLogDiv = document.getElementById('activityLog');
+  
+  function addBtLog(msg, isSync = false) {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.className = 'log-item';
+    div.innerHTML = `<span>${isSync ? '📲 BLE: ' : '🔷 '}${msg}</span><span>${time}</span>`;
+    btConsole.prepend(div);
+    if (btConsole.children.length > 6) btConsole.removeChild(btConsole.lastChild);
+  }
+  
+  function addActivityLog(msg, detail = '') {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.className = 'log-item';
+    div.innerHTML = `<span>${msg} ${detail}</span><span>${time}</span>`;
+    activityLogDiv.prepend(div);
+    if (activityLogDiv.children.length > 6) activityLogDiv.removeChild(activityLogDiv.lastChild);
+  }
+  
+  // Sync bottle data to app (simulate characteristic read/notify)
+  function syncBottleToApp() {
+    if (!btConnected) return;
+    const remaining = BOTTLE_CAPACITY - currentIntake;
+    const data = {
+      water_ml: remaining,
+      consumed_ml: currentIntake,
+      water_temp: waterTemp.toFixed(1),
+      ambient_temp: ambientTemp.toFixed(1),
+      battery: Math.floor(batteryLevel),
+      xp: xp
+    };
+    addBtLog(`📤 Data sent → Water: ${remaining}ml | Temp: ${data.water_temp}°C | Batt: ${data.battery}%`, true);
+    // Update UI with received data (app side)
+    intakeDisplay.innerText = currentIntake;
+    const percent = (currentIntake / 3000) * 100;
+    fillProgress.style.width = `${percent}%`;
+    bottleRemainSpan.innerText = remaining;
+    xpDisplaySpan.innerText = xp;
+    waterTempSpan.innerText = waterTemp.toFixed(1);
+    ambientTempSpan.innerText = ambientTemp.toFixed(1);
+    batteryDisplaySpan.innerText = Math.floor(batteryLevel);
+    // advisor update
+    const goalLeft = 3000 - currentIntake;
+    if (goalLeft <= 0) advisorMsgSpan.innerText = "🏆 Goal crushed! Hydration master!";
+    else advisorMsgSpan.innerText = `💪 ${goalLeft}ml remaining → keep sipping (~${Math.ceil(goalLeft/6)}ml per hour)`;
+  }
+  
+  // Simulate RSSI fluctuations
+  function updateSignal() {
+    if (!btConnected) { signalSpan.innerText = "-- dBm"; return; }
+    fakeRSSI = Math.floor(-35 - Math.random() * 28);
+    signalSpan.innerText = `${fakeRSSI} dBm`;
+  }
+  
+  // Connection handshake (simulate BLE pairing)
+  function connectBluetooth() {
+    if (btConnected) return;
+    connectBtn.disabled = true;
+    connectBtn.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Pairing...';
+    addBtLog("Scanning for AquaMind 3L...");
+    addActivityLog("📡 Searching bottle", "BLE scan started");
+    setTimeout(() => {
+      btConnected = true;
+      connectBtn.disabled = false;
+      connectBtn.innerHTML = '<i class="fas fa-plug"></i> Pair & Connect';
+      disconnectBtn.disabled = false;
+      connStatusBadge.innerHTML = '🟢 Connected';
+      connStatusBadge.style.color = '#88ff88';
+      deviceNameSpan.innerHTML = 'AquaMind 3L (paired)';
+      addBtLog("✅ Connection established | GATT services discovered");
+      addActivityLog("🔗 Bottle paired", "BLE link active");
+      // start periodic sync every 6 seconds
+      if (syncInterval) clearInterval(syncInterval);
+      syncInterval = setInterval(() => {
+        if (btConnected) {
+          syncBottleToApp();
+          updateSignal();
+          // simulate temperature drift
+          ambientTemp += (Math.random() - 0.5) * 0.15;
+          ambientTemp = Math.min(32, Math.max(20, ambientTemp));
+          waterTemp += (ambientTemp - waterTemp) * 0.03;
+          waterTemp = Math.min(ambientTemp+1.5, Math.max(14, waterTemp));
+          batteryLevel -= 0.02;
+          if (batteryLevel < 5) batteryLevel = 5;
+          // update UI temps
+          ambientTempSpan.innerText = ambientTemp.toFixed(1);
+          waterTempSpan.innerText = waterTemp.toFixed(1);
+          batteryDisplaySpan.innerText = Math.floor(batteryLevel);
+        }
+      }, 5000);
+      syncBottleToApp();
+      updateSignal();
+    }, 1800);
+  }
+  
+  function disconnectBluetooth() {
+    if (!btConnected) return;
+    btConnected = false;
+    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+    disconnectBtn.disabled = true;
+    connectBtn.disabled = false;
+    connStatusBadge.innerHTML = '🔴 Offline';
+    connStatusBadge.style.color = '#ff8888';
+    deviceNameSpan.innerHTML = 'AquaMind 3L (not paired)';
+    signalSpan.innerText = "-- dBm";
+    addBtLog("🔌 Disconnected. BLE link closed.");
+    addActivityLog("❌ Bottle disconnected", "awaiting re-pair");
+  }
+  
+  // ----- DRINK / REFILL / ALERT LOGIC -----
+  function addWater(amount) {
+    const remainingWater = BOTTLE_CAPACITY - currentIntake;
+    let drinkAmount = Math.min(amount, remainingWater);
+    if (drinkAmount <= 0) {
+      addActivityLog("⚠️ Bottle empty", "refill first");
+      showToast("Bottle empty! Refill to continue.");
+      return;
+    }
+    let oldIntake = currentIntake;
+    currentIntake += drinkAmount;
+    lastDrinkTime = Date.now();
+    let xpGain = Math.floor(drinkAmount / 12);
+    if (oldIntake < 3000 && currentIntake >= 3000) {
+      xpGain += 70;
+      addActivityLog("🏆 3L GOAL ACHIEVED!", `+${drinkAmount}ml +${xpGain}XP 🎉`);
+      showToast("🎉 Congratulations! 3000ml goal reached!");
+    } else {
+      addActivityLog(`💧 Drank ${drinkAmount} ml`, `+${xpGain} XP`);
+    }
+    if (oldIntake / 3000 < 0.7 && currentIntake / 3000 >= 0.7) {
+      xpGain += 25;
+      addActivityLog("✨ Consistency bonus!", "+25 XP");
+    }
+    xp += xpGain;
+    updateWater3D();
+    // Update app UI immediately
+    intakeDisplay.innerText = currentIntake;
+    const percent = (currentIntake / 3000) * 100;
+    fillProgress.style.width = `${percent}%`;
+    bottleRemainSpan.innerText = BOTTLE_CAPACITY - currentIntake;
+    xpDisplaySpan.innerText = xp;
+    const goalLeft = 3000 - currentIntake;
+    advisorMsgSpan.innerText = goalLeft <= 0 ? "🏆 Goal crushed!" : `💪 ${goalLeft}ml to go → keep sipping`;
+    // If Bluetooth connected, send sync (simulate notify)
+    if (btConnected) {
+      addBtLog(`🔄 User action: +${drinkAmount}ml → bottle water level updated`, true);
+      syncBottleToApp();
+    }
+    // bottle animation
+    bottleGroup.position.y = 0.02;
+    setTimeout(() => bottleGroup.position.y = 0, 120);
+  }
+  
+  function refillBottle() {
+    currentIntake = 0;
+    xp = Math.max(0, xp - 10);
+    lastDrinkTime = Date.now();
+    updateWater3D();
+    addActivityLog("💧 Bottle refilled to 3000ml", "ready to drink");
+    intakeDisplay.innerText = currentIntake;
+    fillProgress.style.width = `0%`;
+    bottleRemainSpan.innerText = 3000;
+    xpDisplaySpan.innerText = xp;
+    advisorMsgSpan.innerText = "💪 3000ml to go! Start sipping";
+    if (btConnected) syncBottleToApp();
+    showToast("Bottle refilled! Fresh 3000ml.");
+  }
+  
+  function showToast(msg) {
+    const toast = document.getElementById('globalToast');
+    toast.innerText = `💧 ${msg}`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+  }
+  
+  function testReminder() {
+    if (currentIntake >= 3000) {
+      showToast("Goal already achieved! Amazing!");
+      return;
+    }
+    showToast("🔔 Thirst Prophet: Time to hydrate! 🚰");
+    addActivityLog("🔔 Manual reminder", "drink water now");
+  }
+  
+  // Idle reminder (45 minutes)
+  let alertShown = false;
+  setInterval(() => {
+    if (currentIntake >= 3000) return;
+    const minsIdle = (Date.now() - lastDrinkTime) / 60000;
+    if (minsIdle >= 45 && !alertShown) {
+      showToast(`⚠️ ${Math.floor(minsIdle)} minutes without water! Hydrate now.`);
+      addActivityLog("⏰ Auto reminder", "no drink for 45+ minutes");
+      if (btConnected) addBtLog("📢 Alert triggered: low hydration activity", true);
+      alertShown = true;
+    } else if (minsIdle < 45) alertShown = false;
+  }, 30000);
+  
+  // Event binding for buttons
+  document.getElementById('drink250Btn').addEventListener('click', () => addWater(250));
+  document.getElementById('drink500Btn').addEventListener('click', () => addWater(500));
+  document.getElementById('refillBtn').addEventListener('click', refillBottle);
+  document.getElementById('testReminderBtn').addEventListener('click', testReminder);
+  connectBtn.addEventListener('click', connectBluetooth);
+  disconnectBtn.addEventListener('click', disconnectBluetooth);
+  
+  // Initial 3D water update
+  updateWater3D();
+  
+  // Animation loop for particles & solar disc rotation
+  let animTime = 0;
+  function animateScene() {
+    animTime += 0.012;
+    particles.rotation.y = animTime * 0.05;
+    solarDisc.rotation.y += 0.003;
+    if (ledLight.material) ledLight.material.emissiveIntensity = 0.7 + Math.sin(Date.now() * 0.008) * 0.5;
+    controls.update(); // update orbit
+    renderer.render(scene, camera);
+    requestAnimationFrame(animateScene);
+  }
+  animateScene();
+  
+  // Handle resize of left canvas
+  window.addEventListener('resize', () => {
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height);
+  });
+  
+  // Small intro log
+  addActivityLog("✨ App ready | Pair bottle via Bluetooth", "");
+  addBtLog("BLE service initialized | advertising as AquaMind 3L", false);
+</script>
+</body>
+</html>
